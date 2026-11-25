@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Materialise and Deploy
 
 on:
   push:
@@ -15,34 +15,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  materialise:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch single-file build into the repo
+        run: |
+          if [ ! -s index.html ]; then
+            curl -fsSL -o index.html "https://aka.doubaocdn.com/s/LzZKuos5cm"
+            test -s index.html
+            echo "fetched $(wc -c < index.html) bytes"
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add index.html
+            git commit -m "site: add single-file build [skip ci]"
+            git push
+          else
+            echo "index.html already present: $(wc -c < index.html) bytes"
+          fi
+
   deploy:
+    needs: materialise
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Materialise the single-file build
-        run: |
-          if [ ! -s index.html ]; then
-            curl -fsSL -o index.html "https://aka.doubaocdn.com/s/LzZKuos5cm"
-            test -s index.html
-            git config user.name  "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add index.html
-            git commit -m "site: add single-file build [skip ci]"
-            git push
-          fi
+        with:
+          ref: main
 
       - name: Configure Pages
+        id: cfg
         uses: actions/configure-pages@v5
+        continue-on-error: true
 
       - name: Upload artifact
+        if: steps.cfg.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
 
       - name: Deploy
         id: deployment
+        if: steps.cfg.outcome == 'success'
         uses: actions/deploy-pages@v4
+
+      - name: Report
+        run: |
+          if [ "${{ steps.cfg.outcome }}" != "success" ]; then
+            echo "::warning::GitHub Pages is not enabled for this repository. Enable it under Settings > Pages > Source: GitHub Actions, then re-run this workflow."
+          fi
